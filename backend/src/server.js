@@ -8,6 +8,7 @@ const swaggerUi = require('swagger-ui-express');
 const swaggerSpecs = require('./config/swagger');
 const { initializeDatabase } = require('./config/db');
 const { initializeWebSocket } = require('./services/notification.service');
+const sponsorshipRoutes = require('./routes/sponsorshipRoutes');
 
 // Load environment variables
 dotenv.config();
@@ -41,7 +42,7 @@ app.use('/api/admin', require('./routes/admin.routes'));
 app.use('/api/messages', require('./routes/message.routes'));
 app.use('/api/notifications', require('./routes/notification.routes'));
 app.use('/api/files', require('./routes/file.routes'));
-
+app.use('/api/sponsorships', sponsorshipRoutes);
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
