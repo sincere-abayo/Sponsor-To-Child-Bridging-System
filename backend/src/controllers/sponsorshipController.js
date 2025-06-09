@@ -1,24 +1,23 @@
 const Sponsorship = require('../models/Sponsorship');
-const User = require('../models/User');
+const User = require('../models/user.model');
 const { uploadFile, deleteFile } = require('../utils/fileStorage');
 
 // Create a new sponsorship request
 exports.createSponsorship = async (req, res) => {
   try {
     const { title, description, category, amount, duration } = req.body;
-    const sponsee = req.user._id;
+    const sponseeId = req.user.id;
 
-    const sponsorship = new Sponsorship({
+    const [result] = await Sponsorship.createSponsorship({
       title,
       description,
       category,
       amount,
       duration,
-      sponsee,
+      sponseeId,
     });
 
-    await sponsorship.save();
-    res.status(201).json(sponsorship);
+    res.status(201).json(result);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -27,22 +26,10 @@ exports.createSponsorship = async (req, res) => {
 // Get all sponsorships for a user (as sponsee or sponsor)
 exports.getUserSponsorships = async (req, res) => {
   try {
-    const userId = req.user._id;
+    const userId = req.user.id;
     const { status } = req.query;
 
-    const query = {
-      $or: [{ sponsee: userId }, { sponsor: userId }],
-    };
-
-    if (status) {
-      query.status = status;
-    }
-
-    const sponsorships = await Sponsorship.find(query)
-      .populate('sponsee', 'name email')
-      .populate('sponsor', 'name email')
-      .sort({ createdAt: -1 });
-
+    const sponsorships = await Sponsorship.getUserSponsorships(userId, req.user.role, status);
     res.json(sponsorships);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -52,9 +39,7 @@ exports.getUserSponsorships = async (req, res) => {
 // Get a single sponsorship by ID
 exports.getSponsorship = async (req, res) => {
   try {
-    const sponsorship = await Sponsorship.findById(req.params.id)
-      .populate('sponsee', 'name email')
-      .populate('sponsor', 'name email');
+    const sponsorship = await Sponsorship.getSponsorship(req.params.id);
 
     if (!sponsorship) {
       return res.status(404).json({ message: 'Sponsorship not found' });
@@ -62,8 +47,8 @@ exports.getSponsorship = async (req, res) => {
 
     // Check if user is authorized to view this sponsorship
     if (
-      sponsorship.sponsee._id.toString() !== req.user._id.toString() &&
-      sponsorship.sponsor?._id.toString() !== req.user._id.toString() &&
+      sponsorship.sponsee_id !== req.user.id &&
+      sponsorship.sponsor_id !== req.user.id &&
       req.user.role !== 'admin'
     ) {
       return res.status(403).json({ message: 'Not authorized' });
@@ -78,7 +63,7 @@ exports.getSponsorship = async (req, res) => {
 // Update a sponsorship
 exports.updateSponsorship = async (req, res) => {
   try {
-    const sponsorship = await Sponsorship.findById(req.params.id);
+    const sponsorship = await Sponsorship.getSponsorship(req.params.id);
 
     if (!sponsorship) {
       return res.status(404).json({ message: 'Sponsorship not found' });
@@ -86,7 +71,7 @@ exports.updateSponsorship = async (req, res) => {
 
     // Check if user is authorized to update this sponsorship
     if (
-      sponsorship.sponsee.toString() !== req.user._id.toString() &&
+      sponsorship.sponsee_id !== req.user.id &&
       req.user.role !== 'admin'
     ) {
       return res.status(403).json({ message: 'Not authorized' });
@@ -100,10 +85,8 @@ exports.updateSponsorship = async (req, res) => {
         return obj;
       }, {});
 
-    Object.assign(sponsorship, updates);
-    await sponsorship.save();
-
-    res.json(sponsorship);
+    const updatedSponsorship = await Sponsorship.updateSponsorship(req.params.id, updates);
+    res.json(updatedSponsorship);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -112,7 +95,7 @@ exports.updateSponsorship = async (req, res) => {
 // Delete a sponsorship
 exports.deleteSponsorship = async (req, res) => {
   try {
-    const sponsorship = await Sponsorship.findById(req.params.id);
+    const sponsorship = await Sponsorship.getSponsorship(req.params.id);
 
     if (!sponsorship) {
       return res.status(404).json({ message: 'Sponsorship not found' });
@@ -120,20 +103,13 @@ exports.deleteSponsorship = async (req, res) => {
 
     // Check if user is authorized to delete this sponsorship
     if (
-      sponsorship.sponsee.toString() !== req.user._id.toString() &&
+      sponsorship.sponsee_id !== req.user.id &&
       req.user.role !== 'admin'
     ) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
-    // Delete associated documents from local storage
-    if (sponsorship.documents && sponsorship.documents.length > 0) {
-      await Promise.all(
-        sponsorship.documents.map(doc => deleteFile(doc.url))
-      );
-    }
-
-    await sponsorship.remove();
+    await Sponsorship.deleteSponsorship(req.params.id);
     res.json({ message: 'Sponsorship deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -143,7 +119,7 @@ exports.deleteSponsorship = async (req, res) => {
 // Upload document for a sponsorship
 exports.uploadDocument = async (req, res) => {
   try {
-    const sponsorship = await Sponsorship.findById(req.params.id);
+    const sponsorship = await Sponsorship.getSponsorship(req.params.id);
 
     if (!sponsorship) {
       return res.status(404).json({ message: 'Sponsorship not found' });
@@ -151,7 +127,7 @@ exports.uploadDocument = async (req, res) => {
 
     // Check if user is authorized to upload documents
     if (
-      sponsorship.sponsee.toString() !== req.user._id.toString() &&
+      sponsorship.sponsee_id !== req.user.id &&
       req.user.role !== 'admin'
     ) {
       return res.status(403).json({ message: 'Not authorized' });
@@ -163,14 +139,15 @@ exports.uploadDocument = async (req, res) => {
 
     const fileUrl = await uploadFile(req.file);
     
-    sponsorship.documents.push({
+    const document = {
       name: req.file.originalname,
       url: fileUrl,
       type: req.file.mimetype,
-    });
+    };
 
-    await sponsorship.save();
-    res.json(sponsorship);
+    await Sponsorship.addDocument(req.params.id, document);
+    const updatedSponsorship = await Sponsorship.getSponsorship(req.params.id);
+    res.json(updatedSponsorship);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -180,7 +157,7 @@ exports.uploadDocument = async (req, res) => {
 exports.addUpdate = async (req, res) => {
   try {
     const { content } = req.body;
-    const sponsorship = await Sponsorship.findById(req.params.id);
+    const sponsorship = await Sponsorship.getSponsorship(req.params.id);
 
     if (!sponsorship) {
       return res.status(404).json({ message: 'Sponsorship not found' });
@@ -188,17 +165,16 @@ exports.addUpdate = async (req, res) => {
 
     // Check if user is authorized to add updates
     if (
-      sponsorship.sponsee.toString() !== req.user._id.toString() &&
-      sponsorship.sponsor?.toString() !== req.user._id.toString() &&
+      sponsorship.sponsee_id !== req.user.id &&
+      sponsorship.sponsor_id !== req.user.id &&
       req.user.role !== 'admin'
     ) {
       return res.status(403).json({ message: 'Not authorized' });
     }
 
-    sponsorship.updates.push({ content });
-    await sponsorship.save();
-
-    res.json(sponsorship);
+    await Sponsorship.addUpdate(req.params.id, content);
+    const updatedSponsorship = await Sponsorship.getSponsorship(req.params.id);
+    res.json(updatedSponsorship);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -208,22 +184,9 @@ exports.addUpdate = async (req, res) => {
 exports.getAvailableSponsorships = async (req, res) => {
   try {
     const { category, minAmount, maxAmount } = req.query;
-    const query = { status: 'pending' };
-
-    if (category) {
-      query.category = category;
-    }
-
-    if (minAmount || maxAmount) {
-      query.amount = {};
-      if (minAmount) query.amount.$gte = Number(minAmount);
-      if (maxAmount) query.amount.$lte = Number(maxAmount);
-    }
-
-    const sponsorships = await Sponsorship.find(query)
-      .populate('sponsee', 'name email')
-      .sort({ createdAt: -1 });
-
+    const filters = { category, minAmount, maxAmount };
+    
+    const sponsorships = await Sponsorship.getAvailableSponsorships(filters);
     res.json(sponsorships);
   } catch (error) {
     res.status(500).json({ message: error.message });

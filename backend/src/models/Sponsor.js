@@ -1,59 +1,122 @@
-const mongoose = require('mongoose');
+const { pool } = require('../config/db');
 
-const sponsorSchema = new mongoose.Schema({
-  user: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-  },
-  sponsees: [{
-    sponsee: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    sponsorship: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Sponsorship',
-      required: true,
-    },
-    status: {
-      type: String,
-      enum: ['pending', 'active', 'completed', 'cancelled'],
-      default: 'pending',
-    },
-    startDate: {
-      type: Date,
-      default: Date.now,
-    },
-    endDate: Date,
-    monthlyAmount: {
-      type: Number,
-      required: true,
-    },
-    totalAmount: {
-      type: Number,
-      required: true,
-    },
-    notes: String,
-  }],
-  totalSponsored: {
-    type: Number,
-    default: 0,
-  },
-  activeSponsorships: {
-    type: Number,
-    default: 0,
-  },
-}, {
-  timestamps: true,
-});
+// Get sponsor profile with sponsees
+async function getSponsorProfile(userId) {
+  const [sponsor] = await pool.query(
+    `SELECT 
+      u.id, u.name, u.email, u.role,
+      COUNT(DISTINCT s.id) as active_sponsorships,
+      COALESCE(SUM(s.amount), 0) as total_sponsored
+    FROM users u
+    LEFT JOIN sponsorships s ON u.id = s.sponsor_id AND s.status = 'active'
+    WHERE u.id = ? AND u.role = 'sponsor'
+    GROUP BY u.id`,
+    [userId]
+  );
 
-// Add indexes for better query performance
-sponsorSchema.index({ user: 1 });
-sponsorSchema.index({ 'sponsees.sponsee': 1 });
-sponsorSchema.index({ 'sponsees.sponsorship': 1 });
+  if (!sponsor[0]) {
+    return null;
+  }
 
-const Sponsor = mongoose.model('Sponsor', sponsorSchema);
+  // Get sponsees with their sponsorships
+  const [sponsees] = await pool.query(
+    `SELECT 
+      s.id as sponsorship_id,
+      s.status,
+      s.amount,
+      s.created_at as start_date,
+      s.updated_at as end_date,
+      u.id as sponsee_id,
+      u.name as sponsee_name,
+      u.email as sponsee_email
+    FROM sponsorships s
+    JOIN users u ON s.sponsee_id = u.id
+    WHERE s.sponsor_id = ?
+    ORDER BY s.created_at DESC`,
+    [userId]
+  );
 
-module.exports = Sponsor; 
+  return {
+    ...sponsor[0],
+    sponsees
+  };
+}
+
+// Start sponsoring a sponsee
+async function startSponsoring(sponsorId, { sponseeId, amount, notes }) {
+  const [result] = await pool.query(
+    `INSERT INTO sponsorships (
+      sponsor_id, sponsee_id, amount, status, notes
+    ) VALUES (?, ?, ?, 'active', ?)`,
+    [sponsorId, sponseeId, amount, notes]
+  );
+  return result.insertId;
+}
+
+// Update sponsorship status
+async function updateSponsorshipStatus(sponsorId, sponsorshipId, status) {
+  const [result] = await pool.query(
+    `UPDATE sponsorships 
+     SET status = ? 
+     WHERE id = ? AND sponsor_id = ?`,
+    [status, sponsorshipId, sponsorId]
+  );
+  return result.affectedRows > 0;
+}
+
+// Add note to sponsorship
+async function addNote(sponsorId, sponsorshipId, note) {
+  const [result] = await pool.query(
+    `UPDATE sponsorships 
+     SET notes = ? 
+     WHERE id = ? AND sponsor_id = ?`,
+    [note, sponsorshipId, sponsorId]
+  );
+  return result.affectedRows > 0;
+}
+
+// Get sponsor statistics
+async function getSponsorStats(userId) {
+  const [stats] = await pool.query(
+    `SELECT 
+      COUNT(DISTINCT CASE WHEN status = 'active' THEN id END) as active_sponsorships,
+      COUNT(DISTINCT CASE WHEN status = 'completed' THEN id END) as completed_sponsorships,
+      COALESCE(SUM(CASE WHEN status = 'active' THEN amount ELSE 0 END), 0) as current_sponsored,
+      COALESCE(SUM(CASE WHEN status = 'completed' THEN amount ELSE 0 END), 0) as total_sponsored
+    FROM sponsorships 
+    WHERE sponsor_id = ?`,
+    [userId]
+  );
+  return stats[0];
+}
+
+// Get all sponsees for a sponsor
+async function getSponsees(sponsorId) {
+  const [sponsees] = await pool.query(
+    `SELECT 
+      s.id as sponsorship_id,
+      s.status,
+      s.amount,
+      s.created_at as start_date,
+      s.updated_at as end_date,
+      s.notes,
+      u.id as sponsee_id,
+      u.name as sponsee_name,
+      u.email as sponsee_email
+    FROM sponsorships s
+    JOIN users u ON s.sponsee_id = u.id
+    WHERE s.sponsor_id = ?
+    ORDER BY s.created_at DESC`,
+    [sponsorId]
+  );
+  return sponsees;
+}
+
+module.exports = {
+  getSponsorProfile,
+  startSponsoring,
+  updateSponsorshipStatus,
+  addNote,
+  getSponsorStats,
+  getSponsees
+}; 

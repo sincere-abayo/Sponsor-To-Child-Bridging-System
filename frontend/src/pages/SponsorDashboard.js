@@ -40,7 +40,7 @@ const SponsorDashboard = () => {
   const [openDialog, setOpenDialog] = useState(false);
   const [selectedSponsee, setSelectedSponsee] = useState(null);
   const [formData, setFormData] = useState({
-    monthlyAmount: '',
+    amount: '',
     notes: '',
   });
 
@@ -52,8 +52,11 @@ const SponsorDashboard = () => {
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const data = await sponsorService.getSponsorDashboard();
-      setDashboardData(data);
+      const [profileData, statsData] = await Promise.all([
+        sponsorService.getSponsorDashboard(),
+        sponsorService.getSponsorStats()
+      ]);
+      setDashboardData({ ...profileData, stats: statsData });
       setError(null);
     } catch (err) {
       setError('Failed to fetch dashboard data. Please try again.');
@@ -84,7 +87,7 @@ const SponsorDashboard = () => {
     setOpenDialog(false);
     setSelectedSponsee(null);
     setFormData({
-      monthlyAmount: '',
+      amount: '',
       notes: '',
     });
   };
@@ -101,7 +104,7 @@ const SponsorDashboard = () => {
     e.preventDefault();
     try {
       await sponsorService.startSponsoring({
-        sponsorshipId: selectedSponsee._id,
+        sponseeId: selectedSponsee.id,
         ...formData,
       });
       handleCloseDialog();
@@ -112,12 +115,9 @@ const SponsorDashboard = () => {
     }
   };
 
-  const handleUpdateStatus = async (sponseeId, newStatus) => {
+  const handleUpdateStatus = async (sponsorshipId, newStatus) => {
     try {
-      await sponsorService.updateSponsorshipStatus({
-        sponseeId,
-        status: newStatus,
-      });
+      await sponsorService.updateSponsorshipStatus(sponsorshipId, newStatus);
       fetchDashboardData();
     } catch (err) {
       setError('Failed to update status. Please try again.');
@@ -155,10 +155,10 @@ const SponsorDashboard = () => {
         </Typography>
         <Box>
           <Typography variant="h6" color="primary" component="span" sx={{ mr: 2 }}>
-            Total Sponsored: ${dashboardData?.totalSponsored || 0}
+            Total Sponsored: ${dashboardData?.stats?.total_sponsored || 0}
           </Typography>
           <Typography variant="h6" color="secondary" component="span">
-            Active Sponsorships: {dashboardData?.activeSponsorships || 0}
+            Active Sponsorships: {dashboardData?.stats?.active_sponsorships || 0}
           </Typography>
         </Box>
       </Box>
@@ -176,13 +176,13 @@ const SponsorDashboard = () => {
 
       {activeTab === 0 ? (
         <Grid container spacing={3}>
-          {dashboardData?.sponsees.map((sponsee) => (
-            <Grid item xs={12} md={6} lg={4} key={sponsee._id}>
+          {dashboardData?.sponsees?.map((sponsee) => (
+            <Grid item xs={12} md={6} lg={4} key={sponsee.sponsorship_id}>
               <Card>
                 <CardContent>
                   <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
                     <Typography variant="h6">
-                      {sponsee.sponsee.name}
+                      {sponsee.sponsee_name}
                     </Typography>
                     <Chip
                       label={sponsee.status}
@@ -190,48 +190,30 @@ const SponsorDashboard = () => {
                       size="small"
                     />
                   </Box>
-                  <Typography color="textSecondary" gutterBottom>
-                    {sponsee.sponsorship.title}
-                  </Typography>
                   <Typography variant="body2" paragraph>
-                    {sponsee.sponsorship.description}
+                    {sponsee.notes}
                   </Typography>
                   <Box display="flex" justifyContent="space-between" mb={1}>
                     <Typography variant="body2" color="textSecondary">
-                      Monthly Amount:
+                      Amount:
                     </Typography>
                     <Typography variant="body2" color="primary">
-                      ${sponsee.monthlyAmount}
+                      ${sponsee.amount}
                     </Typography>
                   </Box>
                   <Box display="flex" justifyContent="space-between">
                     <Typography variant="body2" color="textSecondary">
-                      Total Amount:
+                      Start Date:
                     </Typography>
-                    <Typography variant="body2" color="primary">
-                      ${sponsee.totalAmount}
+                    <Typography variant="body2">
+                      {new Date(sponsee.start_date).toLocaleDateString()}
                     </Typography>
                   </Box>
-                  {sponsee.status === 'active' && (
-                    <Box mt={2}>
-                      <Typography variant="body2" gutterBottom>
-                        Progress
-                      </Typography>
-                      <LinearProgress
-                        variant="determinate"
-                        value={sponsee.sponsorship.progress}
-                        sx={{ height: 8, borderRadius: 4 }}
-                      />
-                      <Typography variant="body2" color="textSecondary" align="right">
-                        {sponsee.sponsorship.progress}%
-                      </Typography>
-                    </Box>
-                  )}
                 </CardContent>
                 <CardActions>
                   <IconButton
                     size="small"
-                    onClick={() => navigate(`/messages/${sponsee.sponsee._id}`)}
+                    onClick={() => navigate(`/messages/${sponsee.sponsee_id}`)}
                   >
                     <MessageIcon />
                   </IconButton>
@@ -239,7 +221,7 @@ const SponsorDashboard = () => {
                     <Button
                       size="small"
                       color="primary"
-                      onClick={() => handleUpdateStatus(sponsee.sponsee._id, 'completed')}
+                      onClick={() => handleUpdateStatus(sponsee.sponsorship_id, 'completed')}
                     >
                       Mark Complete
                     </Button>
@@ -252,14 +234,14 @@ const SponsorDashboard = () => {
       ) : (
         <Grid container spacing={3}>
           {availableSponsees.map((sponsee) => (
-            <Grid item xs={12} md={6} lg={4} key={sponsee._id}>
+            <Grid item xs={12} md={6} lg={4} key={sponsee.id}>
               <Card>
                 <CardContent>
                   <Typography variant="h6" gutterBottom>
-                    {sponsee.sponsee.name}
+                    {sponsee.name}
                   </Typography>
                   <Typography color="textSecondary" gutterBottom>
-                    {sponsee.category}
+                    {sponsee.email}
                   </Typography>
                   <Typography variant="body2" paragraph>
                     {sponsee.description}
@@ -270,14 +252,6 @@ const SponsorDashboard = () => {
                     </Typography>
                     <Typography variant="body2" color="primary">
                       ${sponsee.amount}
-                    </Typography>
-                  </Box>
-                  <Box display="flex" justifyContent="space-between">
-                    <Typography variant="body2" color="textSecondary">
-                      Duration:
-                    </Typography>
-                    <Typography variant="body2">
-                      {sponsee.duration}
                     </Typography>
                   </Box>
                 </CardContent>
@@ -302,12 +276,12 @@ const SponsorDashboard = () => {
         <form onSubmit={handleStartSponsoring}>
           <DialogContent>
             <TextField
-              name="monthlyAmount"
-              label="Monthly Amount"
+              name="amount"
+              label="Amount"
               fullWidth
               margin="normal"
               type="number"
-              value={formData.monthlyAmount}
+              value={formData.amount}
               onChange={handleChange}
               required
             />

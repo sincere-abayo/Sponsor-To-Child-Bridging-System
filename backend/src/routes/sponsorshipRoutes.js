@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
-const { protect, authorize } = require('../middleware/auth');
+const { authenticateToken, authorizeRoles } = require('../middleware/auth.middleware');
 const {
   createSponsorship,
   getUserSponsorships,
@@ -31,27 +31,27 @@ const upload = multer({
 });
 
 // Create a new sponsorship request
-router.post('/', protect, createSponsorship);
+router.post('/', authenticateToken, createSponsorship);
 
 // Get all sponsorships for the authenticated user
-router.get('/my-sponsorships', protect, getUserSponsorships);
+router.get('/my-sponsorships', authenticateToken, getUserSponsorships);
 
 // Get all available sponsorships (for sponsors to browse)
-router.get('/available', protect, getAvailableSponsorships);
+router.get('/available', authenticateToken, getAvailableSponsorships);
 
 // Get a single sponsorship by ID
-router.get('/:id', protect, getSponsorship);
+router.get('/:id', authenticateToken, getSponsorship);
 
 // Update a sponsorship
-router.put('/:id', protect, updateSponsorship);
+router.put('/:id', authenticateToken, updateSponsorship);
 
 // Delete a sponsorship
-router.delete('/:id', protect, deleteSponsorship);
+router.delete('/:id', authenticateToken, deleteSponsorship);
 
 // Upload document for a sponsorship
-router.post('/:id/documents', protect, upload.single('document'), uploadDocument);
+router.post('/:id/documents', authenticateToken, upload.single('document'), uploadDocument);
 
 // Add an update to a sponsorship
-router.post('/:id/updates', protect, addUpdate);
+router.post('/:id/updates', authenticateToken, addUpdate);
 
 module.exports = router; 

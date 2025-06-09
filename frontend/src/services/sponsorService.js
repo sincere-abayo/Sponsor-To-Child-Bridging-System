@@ -8,7 +8,7 @@ export const getAvailableSponsees = async (filters) => {
 };
 
 export const getSponsorDashboard = async () => {
-  const response = await api.get('/sponsors/dashboard');
+  const response = await api.get('/sponsors/profile');
   return response.data;
 };
 
@@ -17,8 +17,8 @@ export const startSponsoring = async (sponsorshipData) => {
   return response.data;
 };
 
-export const updateSponsorshipStatus = async (statusData) => {
-  const response = await api.put('/sponsors/update-status', statusData);
+export const updateSponsorshipStatus = async (sponsorshipId, status) => {
+  const response = await api.put(`/sponsors/sponsorship/${sponsorshipId}/status`, { status });
   return response.data;
 };
 
@@ -27,7 +27,12 @@ export const getSponseeDetails = async (sponseeId) => {
   return response.data;
 };
 
-export const addNote = async (sponseeId, note) => {
-  const response = await api.post(`/sponsors/sponsee/${sponseeId}/note`, { note });
+export const addNote = async (sponsorshipId, note) => {
+  const response = await api.post(`/sponsors/sponsorship/${sponsorshipId}/note`, { note });
+  return response.data;
+};
+
+export const getSponsorStats = async () => {
+  const response = await api.get('/sponsors/stats');
   return response.data;
 }; 
